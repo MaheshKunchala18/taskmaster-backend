@@ -4,18 +4,21 @@ import express from "express";
 import mysql from "mysql2";
 import cors from "cors";
 import bodyParser from "body-parser";
+import dotenv from 'dotenv';
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(bodyParser.json());
 
+dotenv.config();
+
 const db = mysql.createConnection({
-    host: 'host_name',
-    user: 'user_name',
-    password: 'password',
-    database: 'database_name'
+    host: process.env.MYSQL_HOST,
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DATABASE
 });
 
 
