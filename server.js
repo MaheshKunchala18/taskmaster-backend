@@ -3,6 +3,7 @@ import cors from "cors";
 import bodyParser from "body-parser";
 import mongoose from "mongoose";
 import dotenv from 'dotenv';
+import bcrypt from 'bcrypt';
 
 import User from './Models/userModel.js'; // Import the User model
 import OverdueTask from './Models/overdueTaskModel.js'; // Import the OverDueTask model
@@ -287,17 +288,26 @@ app.post('/signup', async (req, res) => {
     const { first_name, last_name, email, password } = req.body;
 
     try {
-        // Create a new user document
+        // Check if email already exists
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            return res.status(400).json({ message: 'Email already exists' });
+        }
+
+        // Hash the password
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        // Save user with hashed password
         const newUser = new User({
-            first_name,
-            last_name,
-            email,
-            password
+            first_name: first_name,
+            last_name: last_name,
+            email: email,
+            password: hashedPassword,
         });
 
-        // Save the user to the database
         const savedUser = await newUser.save();
-        
+
         // Send the userId as a response
         res.status(201).json({ message: 'User created successfully', userId: savedUser._id });
     } catch (err) {
@@ -314,13 +324,22 @@ app.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     try {
-        const user = await User.findOne({ email, password });
-        if (user) {
-            res.status(200).json({ message: 'Login successful', userId: user._id });
-        } else {
-            res.status(401).send('Invalid email or password');
+        // Find user by email
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(401).send('Invalid email');
         }
+
+        // Compare the entered password with the stored hashed password
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).send('Invalid password');
+        }
+
+        // If the password matches, send a success response
+        res.status(200).json({ message: 'Login successful', userId: user._id });
     } catch (err) {
+        console.error(err);
         res.status(500).send('Error logging in');
     }
 });
