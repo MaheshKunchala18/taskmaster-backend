@@ -1,19 +1,16 @@
 {
-  "name": "backend",
+  "name": "taskmaster-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "TaskMaster Backend API with MVC Architecture",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "nodemon server.js",
-    "migrate": "node migration.js",
-    "migrate:mongo": "node -e \"import('./migration.js').then(m => m.migrateMongoDB())\"",
-    "migrate:mysql": "node -e \"import('./migration.js').then(m => m.migrateMySQL())\"",
-    "analyze": "node -e \"import('./migration.js').then(m => m.analyzePerformance())\"",
+    "dev": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": "",
+  "author": "Mahesh Kunchala",
   "license": "ISC",
   "dependencies": {
     "bcrypt": "^5.1.1",
