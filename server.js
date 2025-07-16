@@ -6,10 +6,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
 
 import User from './Models/userModel.js'; // Import the User model
-import OverdueTask from './Models/overdueTaskModel.js'; // Import the OverDueTask model
-import DueTask from './Models/dueTaskModel.js';  // Import the DueTask model
-import CompletedTask from './Models/completedTaskModel.js';  // Import the CompletedTask model
-
+import Task from './Models/taskModel.js'; // Import the unified Task model
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -17,38 +14,32 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(bodyParser.json());
 
-
 dotenv.config();
 
 const uri = process.env.MONGODB_URI;
 
 mongoose.connect(uri)
-    .then(() => console.log('Connected to MongoDB...'))
+    .then(() => {
+        console.log('Connected to MongoDB...');
+        // Ensure indexes are created for optimal performance
+        Task.createIndexes().then(() => {
+            console.log('Database indexes created successfully');
+        }).catch(err => {
+            console.log('Error creating indexes:', err);
+        });
+    })
     .catch((err) => console.log('Could not connect to MongoDB...', err));
 
-
-
+// Utility function to get current date/time
 const getCurrentDateTime = () => {
-    let date = new Date();
-    let year = date.getFullYear();
-    let month = (date.getMonth() + 1).toString().padStart(2, '0'); // padStart is used to add leading zeros
-    let day = date.getDate().toString().padStart(2, '0');
-    let hours = date.getHours().toString().padStart(2, '0');
-    let minutes = date.getMinutes().toString().padStart(2, '0');
-    let seconds = date.getSeconds().toString().padStart(2, '0');
-
-    let dateTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-    return dateTime;
+    return new Date();
 }
-
-
-
 
 app.get('/user', async (req, res) => {
     const { userId } = req.query;
 
     try {
-        const user = await User.findById(userId, 'first_name last_name');  // '.. ..' -> selects only required columns
+        const user = await User.findById(userId, 'first_name last_name');
         res.json(user);
     } catch (err) {
         console.error('Error getting user name:', err);
@@ -56,59 +47,39 @@ app.get('/user', async (req, res) => {
     }
 });
 
-
+// OPTIMIZED: Single efficient query instead of 6+ operations
 app.get('/tasks', async (req, res) => {
     const { userId } = req.query;
-    const currentTime = getCurrentDateTime();
 
     try {
-        // Move overdue tasks from DueTask to OverdueTask
-        const overdueTasks = await DueTask.find({ user_id: userId, due_time: { $lt: currentTime } });
-        await OverdueTask.insertMany(overdueTasks);
-        await DueTask.deleteMany({ user_id: userId, due_time: { $lt: currentTime } });
-
-        // Move non-overdue tasks from OverdueTask to DueTask
-        const dueTasks = await OverdueTask.find({ user_id: userId, due_time: { $gt: currentTime } });
-        await DueTask.insertMany(dueTasks);
-        await OverdueTask.deleteMany({ user_id: userId, due_time: { $gt: currentTime } });
-
-        // Fetch all tasks
-        const fetchedDueTasks = await DueTask.find({ user_id: userId });
-        const fetchedOverdueTasks = await OverdueTask.find({ user_id: userId });
-        const fetchedCompletedTasks = await CompletedTask.find({ user_id: userId });
-
-        // Combine the results and send the response
-        res.json({
-            dueTasks: fetchedDueTasks,
-            overdueTasks: fetchedOverdueTasks,
-            completedTasks: fetchedCompletedTasks
-        });
+        // Single efficient query with proper indexing
+        const categorizedTasks = await Task.getCategorizedTasks(userId);
+        
+        res.json(categorizedTasks);
     } catch (err) {
         console.error('Error fetching tasks:', err);
         res.status(500).send('Error fetching tasks');
     }
 });
 
-
-
-
-// API endpoint to add a task
+// OPTIMIZED: Create task with unified model
 app.post('/tasks', async (req, res) => {
-    const { user_id, task_detail, creation_time, lastedited_time, due_time } = req.body;
+    const { user_id, task_detail, due_time } = req.body;
 
     try {
-        // Create a new due task document
-        const newTask = new DueTask({
+        const currentTime = getCurrentDateTime();
+        
+        // Create new task with unified model
+        const newTask = new Task({
             user_id,
-            task_detail,
-            creation_time,
-            lastedited_time,
-            due_time
+            task_detail: task_detail.trim(),
+            creation_time: currentTime,
+            lastedited_time: currentTime,
+            due_time: new Date(due_time),
+            status: 'pending'
         });
 
-        // Save the task to the database
         await newTask.save();
-
         res.status(200).send('Task added successfully');
     } catch (err) {
         console.error('Error adding task:', err);
@@ -116,22 +87,22 @@ app.post('/tasks', async (req, res) => {
     }
 });
 
-
-
-
-app.put('/duetasks/:id', async (req, res) => {
+// OPTIMIZED: Edit task with unified model
+app.put('/tasks/:id', async (req, res) => {
     const { id } = req.params;
-    const { task_detail, lastedited_time, due_time } = req.body;
+    const { task_detail, due_time } = req.body;
 
     try {
-        const updatedTask = await DueTask.findByIdAndUpdate(
+        const currentTime = getCurrentDateTime();
+        
+        const updatedTask = await Task.findByIdAndUpdate(
             id,
             {
-                task_detail,
-                lastedited_time,
-                due_time
+                task_detail: task_detail.trim(),
+                lastedited_time: currentTime,
+                due_time: new Date(due_time)
             },
-            { new: true } // Return the updated document
+            { new: true }
         );
 
         if (!updatedTask) {
@@ -145,44 +116,12 @@ app.put('/duetasks/:id', async (req, res) => {
     }
 });
 
-
-
-
-app.put('/overduetasks/:id', async (req, res) => {
-    const { id } = req.params;
-    const { task_detail, lastedited_time, due_time } = req.body;
-
-    try {
-        const updatedTask = await OverdueTask.findByIdAndUpdate(
-            id,
-            {
-                task_detail,
-                lastedited_time,
-                due_time
-            },
-            { new: true } // Return the updated document
-        );
-
-        if (!updatedTask) {
-            return res.status(404).send('Task not found');
-        }
-
-        res.status(200).send('Task edited successfully');
-    } catch (err) {
-        console.error('Error editing task:', err);
-        res.status(500).send('Error editing task');
-    }
-});
-
-
-
-
-// API endpoint to delete a task
-app.delete('/duetasks/:id', async (req, res) => {
+// OPTIMIZED: Delete task with unified model
+app.delete('/tasks/:id', async (req, res) => {
     const { id } = req.params;
 
     try {
-        const deletedTask = await DueTask.findByIdAndDelete(id);
+        const deletedTask = await Task.findByIdAndDelete(id);
 
         if (!deletedTask) {
             return res.status(404).send('Task not found');
@@ -195,93 +134,58 @@ app.delete('/duetasks/:id', async (req, res) => {
     }
 });
 
-
-app.delete('/overduetasks/:id', async (req, res) => {
+// OPTIMIZED: Complete task with unified model
+app.put('/tasks/:id/complete', async (req, res) => {
     const { id } = req.params;
 
     try {
-        const deletedTask = await OverdueTask.findByIdAndDelete(id);
-
-        if (!deletedTask) {
-            return res.status(404).send('Task not found');
-        }
-
-        res.status(200).send('Task deleted successfully');
-    } catch (err) {
-        console.error('Error deleting task:', err);
-        res.status(500).send('Error deleting task');
-    }
-});
-
-
-
-
-
-app.put('/completeduetask/:id', async (req, res) => {
-    const { id } = req.params;
-
-    try {
-        // Retrieve the task from due_tasks and insert it into completed_tasks
-        const task = await DueTask.findById(id);
+        const task = await Task.findById(id);
 
         if (!task) {
             return res.status(404).send('Task not found');
         }
 
-        const completedTask = new CompletedTask({
-            user_id: task.user_id,
-            task_detail: task.task_detail,
-            creation_time: task.creation_time,
-            lastedited_time: task.lastedited_time,
-            due_time: task.due_time
-        });
+        // Use the model's built-in method to mark as completed
+        await task.markCompleted();
 
-        await completedTask.save();
-        await DueTask.findByIdAndDelete(id);
-
-        res.status(200).send('Task completed and deleted successfully');
+        res.status(200).send('Task completed successfully');
     } catch (err) {
-        console.error('Error completing task from due tasks:', err);
+        console.error('Error completing task:', err);
         res.status(500).send('Error completing task');
     }
 });
 
-
-
-
-
-app.put('/completeoverduetask/:id', async (req, res) => {
-    const { id } = req.params;
-
-    try {
-        // Retrieve the task from overdue_tasks and insert it into completed_tasks
-        const task = await OverdueTask.findById(id);
-
-        if (!task) {
-            return res.status(404).send('Task not found');
-        }
-
-        const completedTask = new CompletedTask({
-            user_id: task.user_id,
-            task_detail: task.task_detail,
-            creation_time: task.creation_time,
-            lastedited_time: task.lastedited_time,
-            due_time: task.due_time
-        });
-
-        await completedTask.save();
-        await OverdueTask.findByIdAndDelete(id);
-
-        res.status(200).send('Task completed and deleted successfully');
-    } catch (err) {
-        console.error('Error completing task from overdue tasks:', err);
-        res.status(500).send('Error completing task');
-    }
+// LEGACY ENDPOINTS - Maintain backward compatibility with frontend
+// These redirect to the new unified endpoints
+app.put('/duetasks/:id', (req, res) => {
+    req.url = `/tasks/${req.params.id}`;
+    app._router.handle(req, res);
 });
 
+app.put('/overduetasks/:id', (req, res) => {
+    req.url = `/tasks/${req.params.id}`;
+    app._router.handle(req, res);
+});
 
+app.delete('/duetasks/:id', (req, res) => {
+    req.url = `/tasks/${req.params.id}`;
+    app._router.handle(req, res);
+});
 
+app.delete('/overduetasks/:id', (req, res) => {
+    req.url = `/tasks/${req.params.id}`;
+    app._router.handle(req, res);
+});
 
+app.put('/completeduetask/:id', (req, res) => {
+    req.url = `/tasks/${req.params.id}/complete`;
+    app._router.handle(req, res);
+});
+
+app.put('/completeoverduetask/:id', (req, res) => {
+    req.url = `/tasks/${req.params.id}/complete`;
+    app._router.handle(req, res);
+});
 
 // Signup Endpoint
 app.post('/signup', async (req, res) => {
@@ -300,9 +204,9 @@ app.post('/signup', async (req, res) => {
 
         // Save user with hashed password
         const newUser = new User({
-            first_name: first_name,
-            last_name: last_name,
-            email: email,
+            first_name: first_name.trim(),
+            last_name: last_name.trim(),
+            email: email.toLowerCase().trim(),
             password: hashedPassword,
         });
 
@@ -316,16 +220,13 @@ app.post('/signup', async (req, res) => {
     }
 });
 
-
-
-
 // Login Endpoint
 app.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     try {
         // Find user by email
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email: email.toLowerCase().trim() });
         if (!user) {
             return res.status(401).send('Invalid email');
         }
@@ -343,8 +244,6 @@ app.post('/login', async (req, res) => {
         res.status(500).send('Error logging in');
     }
 });
-
-
 
 app.listen(port, () => {
     console.log(`Server is running on port: ${port}`);
