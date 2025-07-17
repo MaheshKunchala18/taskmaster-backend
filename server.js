@@ -27,25 +27,20 @@ const uri = process.env.MONGODB_URI;
 
 mongoose.connect(uri)
     .then(() => {
-        console.log('✅ Connected to MongoDB...');
+        console.log('Connected to MongoDB...');
         // Ensure indexes are created for optimal performance
         Task.createIndexes().then(() => {
-            console.log('✅ Database indexes created successfully');
+            console.log('Database indexes created successfully');
         }).catch(err => {
-            console.log('⚠️ Warning: Error creating indexes:', err.message);
+            console.log('Warning: Error creating indexes:', err.message);
         });
     })
-    .catch((err) => console.log('❌ Could not connect to MongoDB...', err));
+    .catch((err) => console.log('Could not connect to MongoDB...', err));
 
 // Routes
-app.use('/auth', authRoutes);
+app.use('/', authRoutes);  // Direct mounting for /login and /signup
 app.use('/tasks', taskRoutes);
 app.use('/user', userRoutes);
-
-// Legacy routes for backward compatibility
-app.use('/', authRoutes);  // For direct /signup and /login
-app.use('/', taskRoutes);  // For direct task routes
-app.use('/', userRoutes);  // For direct user routes
 
 // Health check endpoint
 app.get('/', (req, res) => {
@@ -74,5 +69,5 @@ app.use('*', (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`🚀 TaskMaster server is running on port: ${port}`);
+    console.log(`Server is running on port: ${port}`);
 });
